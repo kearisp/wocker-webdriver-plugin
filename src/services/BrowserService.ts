@@ -2,7 +2,7 @@ import {DockerService, Injectable, PluginConfigService} from "@wocker/core";
 import {promptConfirm, promptInput, promptSelect} from "@wocker/prompts";
 import CliTable from "cli-table3";
 import * as Path from "path";
-import puppeteer, {Page} from "puppeteer-core";
+import puppeteer, {Page, Viewport} from "puppeteer-core";
 import {Config} from "../makes/Config";
 import {Service, ServiceProps} from "../makes/Service";
 import {ProviderType} from "../types/ProviderType";
@@ -273,7 +273,7 @@ export class BrowserService {
         return this.getProvider(service).getCdpUrl();
     }
 
-    public async exec(scriptPath: string, name?: string, tab?: string): Promise<unknown> {
+    public async exec(scriptPath: string, name?: string, tab?: string, viewport?: string): Promise<unknown> {
         const fullPath = Path.resolve(process.cwd(), scriptPath);
         const exported = require(fullPath);
         const handler: EvalHandler = typeof exported === "function" ? exported : exported.default;
@@ -282,13 +282,13 @@ export class BrowserService {
             throw new Error(`"${scriptPath}" must export a function: page => { ... }`);
         }
 
-        return this.run(handler, name, tab);
+        return this.run(handler, name, tab, viewport);
     }
 
-    public async eval(code: string, name?: string, tab?: string): Promise<unknown> {
+    public async eval(code: string, name?: string, tab?: string, viewport?: string): Promise<unknown> {
         const handler = new AsyncFunction("page", code) as EvalHandler;
 
-        return this.run(handler, name, tab);
+        return this.run(handler, name, tab, viewport);
     }
 
     public async pages(name?: string): Promise<string> {
@@ -296,7 +296,7 @@ export class BrowserService {
         const cdpUrl = await this.cdp(name);
 
         const browser = await puppeteer.connect({
-            browserURL: cdpUrl,
+            ...this.endpointOptions(cdpUrl),
             protocol: service.browser === BrowserTypeEnum.CHROMIUM ? "cdp" : "webDriverBiDi",
             defaultViewport: null
         });
@@ -319,19 +319,15 @@ export class BrowserService {
         }
     }
 
-    protected async run(handler: EvalHandler, name?: string, tab?: string): Promise<unknown> {
+    protected async run(handler: EvalHandler, name?: string, tab?: string, viewport?: string): Promise<unknown> {
         const service = this.config.getServiceOrDefault(name);
 
         const cdpUrl = await this.cdp(name);
 
         const browser = await puppeteer.connect({
-            browserURL: cdpUrl,
+            ...this.endpointOptions(cdpUrl),
             protocol: service.browser === BrowserTypeEnum.CHROMIUM ? "cdp" : "webDriverBiDi",
-            // Without this, Puppeteer forces an 800x600 viewport regardless
-            // of the actual browser window size — in headful mode that
-            // renders the page into a small top-left rectangle instead of
-            // filling the window. `null` makes it use the window's own size.
-            defaultViewport: null
+            defaultViewport: this.parseViewport(viewport)
         });
 
         // Attaching to a tab the user already has open (and already
@@ -382,6 +378,64 @@ export class BrowserService {
                 console.error("Warning: the script didn't await one or more promises (e.g. \"page.goto(...)\" without \"await\") — they were aborted when the page closed.");
             }
         }
+    }
+
+    protected endpointOptions(endpoint: string): {browserURL: string} | {browserWSEndpoint: string} {
+        if(endpoint.startsWith("ws://") || endpoint.startsWith("wss://")) {
+            return {
+                browserWSEndpoint: endpoint
+            };
+        }
+
+        return {
+            browserURL: endpoint
+        };
+    }
+
+    public async screenshot(name?: string, tab?: string, selector?: string, out?: string, fullPage?: boolean, viewport?: string): Promise<string> {
+        const outPath = out
+            ? Path.resolve(process.cwd(), out)
+            : Path.join("/tmp", `screenshot-${Date.now()}.png`);
+
+        await this.run(async (page) => {
+            if(selector) {
+                const element = await page.$(selector);
+
+                if(!element) {
+                    throw new Error(`No element matching selector "${selector}"`);
+                }
+
+                await element.screenshot({
+                    path: outPath
+                });
+
+                return;
+            }
+
+            await page.screenshot({
+                path: outPath,
+                fullPage
+            });
+        }, name, tab, viewport);
+
+        return outPath;
+    }
+
+    protected parseViewport(viewport?: string): Viewport | null {
+        if(!viewport) {
+            return null;
+        }
+
+        const match = /^(\d+)x(\d+)$/.exec(viewport);
+
+        if(!match) {
+            throw new Error(`Invalid --viewport "${viewport}", expected WIDTHxHEIGHT (e.g. 1280x800)`);
+        }
+
+        return {
+            width: Number(match[1]),
+            height: Number(match[2])
+        };
     }
 
     protected findTab(pages: Page[], selector: string): Page | undefined {

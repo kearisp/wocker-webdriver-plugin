@@ -1,5 +1,6 @@
 import {spawn} from "child_process";
 import * as FS from "fs";
+import * as Net from "net";
 import {Service} from "../makes/Service";
 import {BrowserProvider} from "../types/BrowserProvider";
 import {BrowserType} from "../types/BrowserType";
@@ -35,27 +36,23 @@ export class HostProvider extends BrowserProvider {
             "--remote-debugging-address=127.0.0.1",
             this.service.browser === BrowserType.CHROMIUM
                 ? `--user-data-dir=${this.profileDir}`
-                : `--profile=${this.profileDir}`,
-            // "--no-sandbox",
-            "--disable-gpu"
+                : `--profile=${this.profileDir}`
         ];
 
         if(this.service.headless) {
             args.push("--headless=new");
+
+            if(this.service.browser === BrowserType.CHROMIUM) {
+                args.push("--disable-gpu");
+            }
         }
 
         const log = FS.openSync(this.logFile, "a");
 
         const child = spawn(this.service.path, args, {
             detached: true,
-            // The PID we get back isn't reliably the browser's final PID (the
-            // executable may re-exec/daemonize under a different one), so it's
-            // only good enough for a best-effort `stop()` — actual "is it up"
-            // has to be a real CDP check, see isRunning().
             stdio: ["ignore", log, log]
         });
-
-        console.log(">_<");
 
         child.unref();
         FS.closeSync(log);
@@ -99,6 +96,10 @@ export class HostProvider extends BrowserProvider {
     }
 
     public async isRunning(): Promise<boolean> {
+        if(this.service.browser === BrowserType.FIREFOX) {
+            return !!this.getFirefoxWsEndpoint() && await this.isPortOpen(this.service.port || 3000);
+        }
+
         try {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 1000);
@@ -121,7 +122,40 @@ export class HostProvider extends BrowserProvider {
             throw new Error(`Service "${this.service.name}" is not started. Run "ws browser:start" first.`);
         }
 
+        if(this.service.browser === BrowserType.FIREFOX) {
+            return this.getFirefoxWsEndpoint() as string;
+        }
+
         return `http://localhost:${this.service.port || 3000}`;
+    }
+
+    protected getFirefoxWsEndpoint(): string | undefined {
+        if(!FS.existsSync(this.logFile)) {
+            return undefined;
+        }
+
+        const matches = [...FS.readFileSync(this.logFile, "utf-8").matchAll(/^WebDriver BiDi listening on (ws:\/\/.*)$/gm)];
+
+        return matches.length > 0 ? `${matches[matches.length - 1][1].trim()}/session` : undefined;
+    }
+
+    protected isPortOpen(port: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            const socket = Net.createConnection({
+                host: "127.0.0.1",
+                port,
+                timeout: 1000
+            });
+
+            const done = (result: boolean) => {
+                socket.destroy();
+                resolve(result);
+            };
+
+            socket.once("connect", () => done(true));
+            socket.once("timeout", () => done(false));
+            socket.once("error", () => done(false));
+        });
     }
 
     protected async waitUntilRunning(timeoutMs = 10000): Promise<boolean> {

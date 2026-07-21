@@ -4,9 +4,9 @@ import {
     Description,
     Completion,
     Option,
-    Param
+    Param,
+    DockerService
 } from "@wocker/core";
-import {AppConfigService, DockerService} from "@wocker/core";
 import {BrowserService} from "../services/BrowserService";
 import {ProviderType} from "../types/ProviderType";
 
@@ -15,50 +15,35 @@ import {ProviderType} from "../types/ProviderType";
 @Description("Browser commands")
 export class BrowserController {
     public constructor(
-        protected readonly appConfigService: AppConfigService,
         protected readonly dockerService: DockerService,
         protected readonly browserService: BrowserService
     ) {}
 
     @Command("browser:create [service]")
-    @Description("Creates a headless browser service with a configurable provider (container, local, url).")
+    @Description("Creates a headless browser service with a configurable provider (container, host, url).")
     public async create(
         @Param("service")
         name?: string,
-        @Option("provider", {
-            type: "string",
-            alias: "p",
-            description: `Browser provider (${ProviderType.values().join(", ")})`
-        })
+        @Option("provider", "p")
+        @Description(`Browser provider (${ProviderType.values().join(", ")})`)
         provider?: ProviderType,
-        @Option("url", {
-            type: "string",
-            description: "CDP URL of an already-running browser (used when provider is \"url\")"
-        })
+        @Option("url")
+        @Description("CDP URL of an already-running browser (used when provider is \"url\")")
         url?: string,
-        @Option("path", {
-            type: "string",
-            description: "Path to the browser executable (used when provider is \"local\")"
-        })
+        @Option("path")
+        @Description("Path to the browser executable (used when provider is \"host\")")
         path?: string,
-        @Option("image", {
-            type: "string",
-            alias: "i",
-            description: "The image name to start the service with (used when provider is \"container\")"
-        })
+        @Option("image", "i")
+        @Description("The image name to start the service with (used when provider is \"container\")")
         image?: string,
         @Option("port")
         @Description("Port the browser listens on")
         port?: number,
-        @Option("headless", {
-            type: "boolean",
-            description: "Run the browser headless (used when provider is \"local\"; default: on)"
-        })
+        @Option("headless")
+        @Description("Run the browser headless (used when provider is \"host\"; default: on)")
         headless?: boolean,
-        @Option("headful", {
-            type: "boolean",
-            description: "Run the browser with a visible window instead of headless (used when provider is \"local\")"
-        })
+        @Option("headful")
+        @Description("Run the browser with a visible window instead of headless (used when provider is \"host\")")
         headful?: boolean
     ): Promise<void> {
         await this.browserService.create({
@@ -77,17 +62,11 @@ export class BrowserController {
     public async destroy(
         @Param("service")
         service?: string,
-        @Option("force", {
-            type: "boolean",
-            alias: "f",
-            description: "Force deletion"
-        })
+        @Option("force", "f")
+        @Description("Force deletion")
         force?: boolean,
-        @Option("yes", {
-            type: "boolean",
-            alias: "y",
-            description: "Skip confirmation"
-        })
+        @Option("yes", "y")
+        @Description("Skip confirmation")
         yes?: boolean
     ): Promise<void> {
         await this.browserService.destroy(service, yes, force);
@@ -98,39 +77,25 @@ export class BrowserController {
     public async upgrade(
         @Param("name")
         name?: string,
-        @Option("provider", {
-            type: "string",
-            alias: "p",
-            description: `Browser provider (${ProviderType.values().join(", ")})`
-        })
+        @Option("provider", "p")
+        @Description(`Browser provider (${ProviderType.values().join(", ")})`)
         provider?: ProviderType,
-        @Option("url", {
-            type: "string",
-            description: "CDP URL of an already-running browser (used when provider is \"url\")"
-        })
+        @Option("url")
+        @Description("CDP URL of an already-running browser (used when provider is \"url\")")
         url?: string,
-        @Option("path", {
-            type: "string",
-            description: "Path to the browser executable (used when provider is \"local\")"
-        })
+        @Option("path")
+        @Description("Path to the browser executable (used when provider is \"host\")")
         path?: string,
-        @Option("image", {
-            type: "string",
-            alias: "i"
-        })
+        @Option("image", "i")
         image?: string,
         @Option("port")
         @Description("Port the browser listens on")
         port?: number,
-        @Option("headless", {
-            type: "boolean",
-            description: "Run the browser headless (used when provider is \"local\")"
-        })
+        @Option("headless")
+        @Description("Run the browser headless (used when provider is \"host\")")
         headless?: boolean,
-        @Option("headful", {
-            type: "boolean",
-            description: "Run the browser with a visible window instead of headless (used when provider is \"local\")"
-        })
+        @Option("headful")
+        @Description("Run the browser with a visible window instead of headless (used when provider is \"host\")")
         headful?: boolean
     ): Promise<void> {
         await this.browserService.upgrade({
@@ -164,11 +129,8 @@ export class BrowserController {
     public async start(
         @Param("service")
         service?: string,
-        @Option("restart", {
-            type: "boolean",
-            alias: "r",
-            description: "Restart the service if already running"
-        })
+        @Option("restart", "r")
+        @Description("Restart the service if already running")
         restart?: boolean
     ): Promise<void> {
         await this.browserService.start(service, restart);
@@ -206,13 +168,14 @@ export class BrowserController {
         file: string,
         @Param("service")
         service?: string,
-        @Option("tab", {
-            type: "string",
-            description: "Attach to an already-open tab instead of a new one — by index (see browser:pages) or a substring of its URL. The tab is left open afterwards."
-        })
-        tab?: string
+        @Option("tab", "t")
+        @Description("Attach to an already-open tab instead of a new one — by index (see browser:pages) or a substring of its URL. The tab is left open afterwards.")
+        tab?: string,
+        @Option("viewport", "v")
+        @Description("Viewport size as WIDTHxHEIGHT, e.g. 1280x800 (default: match the window's own size)")
+        viewport?: string
     ): Promise<string | undefined> {
-        return this.formatResult(await this.browserService.exec(file, service, tab));
+        return this.formatResult(await this.browserService.exec(file, service, tab, viewport));
     }
 
     @Command("browser:eval <code> [service]")
@@ -222,13 +185,14 @@ export class BrowserController {
         code: string,
         @Param("service")
         service?: string,
-        @Option("tab", {
-            type: "string",
-            description: "Attach to an already-open tab instead of a new one — by index (see browser:pages) or a substring of its URL. The tab is left open afterwards."
-        })
-        tab?: string
+        @Option("tab", "t")
+        @Description("Attach to an already-open tab instead of a new one — by index (see browser:pages) or a substring of its URL. The tab is left open afterwards.")
+        tab?: string,
+        @Option("viewport", "v")
+        @Description("Viewport size as WIDTHxHEIGHT, e.g. 1280x800 (default: match the window's own size)")
+        viewport?: string
     ): Promise<string | undefined> {
-        return this.formatResult(await this.browserService.eval(code, service, tab));
+        return this.formatResult(await this.browserService.eval(code, service, tab, viewport));
     }
 
     @Command("browser:pages [service]")
@@ -238,6 +202,32 @@ export class BrowserController {
         service?: string
     ): Promise<string> {
         return this.browserService.pages(service);
+    }
+
+    @Command("browser:screenshot [service]")
+    @Description("Takes a screenshot of a page (or a single element via --selector) and saves it to disk. Defaults to /tmp/screenshot-<timestamp>.png.")
+    public async screenshot(
+        @Param("service")
+        service?: string,
+        @Option("tab", "t")
+        @Description("Attach to an already-open tab instead of a new one — by index (see browser:pages) or a substring of its URL. The tab is left open afterwards.")
+        tab?: string,
+        @Option("selector", "s")
+        @Description("CSS selector of a single element to screenshot instead of the whole page")
+        selector?: string,
+        @Option("out", "o")
+        @Description("File to save the screenshot to (image format is inferred from the extension); defaults to /tmp/screenshot-<timestamp>.png")
+        out?: string,
+        @Option("fullpage", "f")
+        @Description("Capture the full scrollable page instead of just the visible viewport (ignored with --selector)")
+        fullpage?: boolean,
+        @Option("viewport", "v")
+        @Description("Viewport size as WIDTHxHEIGHT, e.g. 1280x800 (default: match the window's own size)")
+        viewport?: string
+    ): Promise<string> {
+        const path = await this.browserService.screenshot(service, tab, selector, out, fullpage, viewport);
+
+        return `Saved screenshot to ${path}\n`;
     }
 
     protected formatResult(result: unknown): string | undefined {

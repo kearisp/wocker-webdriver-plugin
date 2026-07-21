@@ -1,4 +1,4 @@
-# @wocker/cdp-plugin
+# @wocker/webdriver-plugin
 
 ###### Docker workspace for web projects
 

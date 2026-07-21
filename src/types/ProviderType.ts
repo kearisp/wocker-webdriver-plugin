@@ -13,7 +13,7 @@ export const ProviderType = Object.assign({}, ProviderTypeEnum, {
     options: () => {
         return ProviderType.values().map((provider) => {
             return {
-                label: ProviderType.label(provider),
+                label: `${ProviderType.label(provider)} (${ProviderType.description(provider)})`,
                 value: provider
             };
         });
