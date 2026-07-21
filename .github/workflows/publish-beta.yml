@@ -1,0 +1,57 @@
+name: Beta
+
+on:
+    pull_request:
+        types:
+          - opened
+          - reopened
+          - synchronize
+        paths:
+          - src
+          - package.json
+          - tsconfig.json
+    pull_request_review:
+        types:
+          - submitted
+
+jobs:
+    publish-beta:
+        name: Publish beta
+        runs-on: ubuntu-latest
+        environment: publish
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+          - name: Checkout code
+            uses: actions/checkout@v7
+
+          - name: Setup Node.js
+            uses: actions/setup-node@v7
+            with:
+                node-version: 24
+                registry-url: 'https://registry.npmjs.org'
+
+          - name: Setup beta version
+            uses: kearisp/npm-version-action@v0.0.3
+            with:
+                tag: beta
+
+          - name: Cache dependencies
+            uses: actions/cache@v6
+            with:
+                path: ~/.npm
+                key: ${{ runner.os }}-npm-${{ hashFiles('**/package.json') }}
+                restore-keys: |
+                    ${{ runner.os }}-npm-
+
+          - name: Install dependencies
+            shell: bash
+            run: npm install
+
+          - name: Publish beta to NPM
+            if: ${{ github.repository_owner == 'kearisp' }}
+            shell: bash
+            env:
+                NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+            run: npm publish --provenance --tag beta
