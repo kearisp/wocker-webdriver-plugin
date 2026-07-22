@@ -1,0 +1,43 @@
+{
+    "name": "@wocker/webdriver-plugin",
+    "type": "commonjs",
+    "version": "0.0.1",
+    "description": "Webdriver plugin for wocker",
+    "author": "Kris Papercut <krispcut@gmail.com>",
+    "license": "MIT",
+    "main": "./lib/index.js",
+    "types": "./lib/index.d.ts",
+    "keywords": [
+        "wocker",
+        "docker",
+        "browser",
+        "chromium",
+        "plugin",
+        "webdriver"
+    ],
+    "homepage": "https://kearisp.github.io/wocker/docs/plugins/webdriver",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/kearisp/wocker-webdriver-plugin.git"
+    },
+    "bugs": {
+        "url": "https://github.com/kearisp/wocker-webdriver-plugin/issues"
+    },
+    "scripts": {
+        "prepublishOnly": "npm run build",
+        "watch": "tsc -w",
+        "build": "tsc",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "dependencies": {
+        "@wocker/core": "^1.0.24",
+        "@wocker/prompts": "^1.0.0",
+        "@wocker/utils": "^2.0.11",
+        "cli-table3": "^0.6.5",
+        "puppeteer-core": "^25.3.0"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.3",
+        "typescript": "^5.8.3"
+    }
+}
