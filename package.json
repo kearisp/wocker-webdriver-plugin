@@ -1,7 +1,7 @@
 {
     "name": "@wocker/webdriver-plugin",
     "type": "commonjs",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "Webdriver plugin for wocker",
     "author": "Kris Papercut <krispcut@gmail.com>",
     "license": "MIT",
@@ -34,6 +34,7 @@
         "@wocker/prompts": "^1.0.0",
         "@wocker/utils": "^2.0.11",
         "cli-table3": "^0.6.5",
+        "koffi": "^3.1.2",
         "puppeteer-core": "^25.3.0"
     },
     "devDependencies": {

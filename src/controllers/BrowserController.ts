@@ -145,6 +145,24 @@ export class BrowserController {
         await this.browserService.stop(service);
     }
 
+    @Command("browser:hide [service]")
+    @Description("Hides the browser window (X11 unmap) — useful to force WSLg to redraw it, e.g. when the mouse cursor disappears. Only works for host-provider services.")
+    public async hideWindow(
+        @Param("service")
+        service?: string
+    ): Promise<void> {
+        await this.browserService.hideWindow(service);
+    }
+
+    @Command("browser:show [service]")
+    @Description("Shows the browser window again after browser:hide.")
+    public async showWindow(
+        @Param("service")
+        service?: string
+    ): Promise<void> {
+        await this.browserService.showWindow(service);
+    }
+
     @Command("browser:ls")
     @Command("browser:list")
     @Description("Lists all browser services.")
@@ -169,13 +187,16 @@ export class BrowserController {
         @Param("service")
         service?: string,
         @Option("tab", "t")
-        @Description("Attach to an already-open tab instead of a new one — by index (see browser:pages) or a substring of its URL. The tab is left open afterwards.")
+        @Description("Attach to a specific open tab by index (see browser:pages) or a substring of its URL, instead of the active tab.")
         tab?: string,
+        @Option("new", "n")
+        @Description("Open a new tab instead of using the active tab (or the one given via --tab).")
+        isNew?: boolean,
         @Option("viewport", "v")
         @Description("Viewport size as WIDTHxHEIGHT, e.g. 1280x800 (default: match the window's own size)")
         viewport?: string
     ): Promise<string | undefined> {
-        return this.formatResult(await this.browserService.exec(file, service, tab, viewport));
+        return this.formatResult(await this.browserService.exec(file, service, tab, viewport, isNew));
     }
 
     @Command("browser:eval <code> [service]")
@@ -186,17 +207,20 @@ export class BrowserController {
         @Param("service")
         service?: string,
         @Option("tab", "t")
-        @Description("Attach to an already-open tab instead of a new one — by index (see browser:pages) or a substring of its URL. The tab is left open afterwards.")
+        @Description("Attach to a specific open tab by index (see browser:pages) or a substring of its URL, instead of the active tab.")
         tab?: string,
+        @Option("new", "n")
+        @Description("Open a new tab instead of using the active tab (or the one given via --tab).")
+        isNew?: boolean,
         @Option("viewport", "v")
         @Description("Viewport size as WIDTHxHEIGHT, e.g. 1280x800 (default: match the window's own size)")
         viewport?: string
     ): Promise<string | undefined> {
-        return this.formatResult(await this.browserService.eval(code, service, tab, viewport));
+        return this.formatResult(await this.browserService.eval(code, service, tab, viewport, isNew));
     }
 
     @Command("browser:pages [service]")
-    @Description("Lists open tabs in a running browser service (title, URL) — use an index or URL substring with --tab on exec/eval to attach to one instead of opening a new tab.")
+    @Description("Lists open tabs in a running browser service (title, URL), marking which one is the active tab — use an index or URL substring with --tab on exec/eval/screenshot to target a different one, or --new to open a fresh tab.")
     public async pages(
         @Param("service")
         service?: string
@@ -210,8 +234,11 @@ export class BrowserController {
         @Param("service")
         service?: string,
         @Option("tab", "t")
-        @Description("Attach to an already-open tab instead of a new one — by index (see browser:pages) or a substring of its URL. The tab is left open afterwards.")
+        @Description("Attach to a specific open tab by index (see browser:pages) or a substring of its URL, instead of the active tab.")
         tab?: string,
+        @Option("new", "n")
+        @Description("Open a new tab instead of using the active tab (or the one given via --tab).")
+        isNew?: boolean,
         @Option("selector", "s")
         @Description("CSS selector of a single element to screenshot instead of the whole page")
         selector?: string,
@@ -225,7 +252,7 @@ export class BrowserController {
         @Description("Viewport size as WIDTHxHEIGHT, e.g. 1280x800 (default: match the window's own size)")
         viewport?: string
     ): Promise<string> {
-        const path = await this.browserService.screenshot(service, tab, selector, out, fullpage, viewport);
+        const path = await this.browserService.screenshot(service, tab, selector, out, fullpage, viewport, isNew);
 
         return `Saved screenshot to ${path}\n`;
     }

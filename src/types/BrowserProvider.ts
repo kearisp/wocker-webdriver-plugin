@@ -11,4 +11,8 @@ export abstract class BrowserProvider {
     public abstract remove(): Promise<void>;
     public abstract isRunning(): Promise<boolean>;
     public abstract getCdpUrl(): Promise<string>;
+
+    public getPid(): number | undefined {
+        return undefined;
+    }
 }
