@@ -186,6 +186,10 @@ export class HostProvider extends BrowserProvider {
         return false;
     }
 
+    public getPid(): number | undefined {
+        return this.readPid();
+    }
+
     protected readPid(): number | undefined {
         if(!FS.existsSync(this.pidFile)) {
             return undefined;

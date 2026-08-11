@@ -56,12 +56,16 @@ ws browser:create --provider local --path /usr/bin/google-chrome --headful
 ws browser:create --provider url --url http://192.168.1.10:9222
 ws browser:start [service]                   # start it (container/local providers only)
 ws browser:stop [service]                    # stop it (container/local providers only)
+ws browser:use [service]                     # set/print the default service
 ws browser:list                              # list configured services
 ws browser:destroy [service]                 # remove it
 ws browser:cdp [service]                     # print the CDP endpoint URL, e.g. http://localhost:3000
-ws browser:pages [service]                   # list open tabs (#, title, URL)
+ws browser:pages [service]                   # list open tabs (#, active marker, title, URL)
 ws browser:exec <file> [service]             # run a script file against the browser
 ws browser:eval <code> [service]             # run inline JS against the browser
+ws browser:screenshot [service]              # screenshot a page (or --selector) to disk
+ws browser:hide [service]                    # hide the browser window (local provider only)
+ws browser:show [service]                    # show it again
 ```
 
 ### Creating a `local` service
@@ -89,8 +93,9 @@ force it back on.
 ### `browser:exec` vs `browser:eval`
 
 Both connect via the plugin's own `puppeteer-core`, hand a Puppeteer `page`
-to your code, then close that page and disconnect (never `browser.close()`
-— the browser is shared).
+to your code, then disconnect (never `browser.close()` — the browser is
+shared). The page itself is **never closed** — whatever tab was used (the
+active tab, a `--tab` you picked, or a `--new` one) stays open afterwards.
 
 - **`exec <file>`** — the file must export an async function:
 
@@ -115,30 +120,39 @@ to your code, then close that page and disconnect (never `browser.close()`
   ```
 
   If your code doesn't `await`/`return` a promise (e.g. a bare
-  `page.goto(...)`), it gets aborted when the page closes right after — the
-  command won't crash, but you'll see a warning on stderr instead of a
-  result.
+  `page.goto(...)`), it gets aborted when the connection to the browser
+  disconnects right after — the command won't crash, but you'll see a
+  warning on stderr instead of a result.
 
-### Working with a tab you already have open
+### Which tab gets used
 
-By default `exec`/`eval` open a fresh, throwaway tab. If you'd rather have
-the agent pick up a tab you already have open and authenticated (so it
-doesn't need to log in itself), list tabs and target one with `--tab`:
+`exec`, `eval`, and `screenshot` all target a tab, picked in this order:
+
+- **default (no `--tab`/`--new`)** — the currently **active** tab, i.e. the
+  one in the foreground of the browser window. This is what you want when
+  the agent should pick up a tab you (or a previous command) already have
+  open and authenticated, without needing to log in itself.
+- **`--tab <index|url-substring>`** — a specific open tab, by index (see
+  `ws browser:pages`) or a substring of its URL.
+- **`--new`** — always open a fresh tab instead.
 
 ```shell
 ws browser:pages
-# ┌───┬────────────────┬────────────────────────┐
-# │ # │ Title          │ URL                     │
-# ├───┼────────────────┼────────────────────────┤
-# │ 0 │ My Dashboard    │ https://app.local/home  │
-# └───┴────────────────┴────────────────────────┘
+# ┌───┬────────┬────────────────┬────────────────────────┐
+# │ # │ Active │ Title          │ URL                     │
+# ├───┼────────┼────────────────┼────────────────────────┤
+# │ 0 │ *      │ My Dashboard   │ https://app.local/home  │
+# └───┴────────┴────────────────┴────────────────────────┘
 
-ws browser:eval --tab 0 "return await page.title();"
-ws browser:eval --tab app.local "return await page.title();"   # or match by a substring of the URL
+ws browser:eval "return await page.title();"                   # active tab
+ws browser:eval --tab 0 "return await page.title();"            # by index
+ws browser:eval --tab app.local "return await page.title();"    # by URL substring
+ws browser:eval --new "return await page.title();"              # always a fresh tab
 ```
 
-A tab targeted with `--tab` is left open afterwards — only tabs `exec`/`eval`
-create themselves get closed.
+`--tab` and `--new` are mutually exclusive. No tab is ever closed
+automatically — whichever one gets used stays open after the command
+finishes.
 
 ### Ports
 

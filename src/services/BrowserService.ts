@@ -2,7 +2,7 @@ import {DockerService, Injectable, PluginConfigService} from "@wocker/core";
 import {promptConfirm, promptInput, promptSelect} from "@wocker/prompts";
 import CliTable from "cli-table3";
 import * as Path from "path";
-import puppeteer, {Page, Viewport} from "puppeteer-core";
+import puppeteer, {Browser, Page, Viewport} from "puppeteer-core";
 import {Config} from "../makes/Config";
 import {Service, ServiceProps} from "../makes/Service";
 import {ProviderType} from "../types/ProviderType";
@@ -11,6 +11,7 @@ import {ContainerProvider} from "../providers/ContainerProvider";
 import {HostProvider} from "../providers/HostProvider";
 import {UrlProvider} from "../providers/UrlProvider";
 import {detectBrowsers} from "../utils/detectBrowsers";
+import {hideWindowByPid, showWindowByPid} from "../utils/x11";
 import {BrowserTypeEnum} from "../types/BrowserType";
 
 
@@ -263,6 +264,25 @@ export class BrowserService {
         this.config.save();
     }
 
+    public async hideWindow(name?: string): Promise<void> {
+        hideWindowByPid(this.getPid(name));
+    }
+
+    public async showWindow(name?: string): Promise<void> {
+        showWindowByPid(this.getPid(name));
+    }
+
+    protected getPid(name?: string): number {
+        const service = this.config.getServiceOrDefault(name);
+        const pid = this.getProvider(service).getPid();
+
+        if(!pid) {
+            throw new Error(`Service "${service.name}" has no process to find a window for (only host-provider services running have one).`);
+        }
+
+        return pid;
+    }
+
     public async cdp(name?: string): Promise<string> {
         if(!name && !this.config.hasDefaultService()) {
             throw new Error("No browser service configured. Run \"ws browser:create\" and \"ws browser:start\" first.");
@@ -273,7 +293,7 @@ export class BrowserService {
         return this.getProvider(service).getCdpUrl();
     }
 
-    public async exec(scriptPath: string, name?: string, tab?: string, viewport?: string): Promise<unknown> {
+    public async exec(scriptPath: string, name?: string, tab?: string, viewport?: string, isNew?: boolean): Promise<unknown> {
         const fullPath = Path.resolve(process.cwd(), scriptPath);
         const exported = require(fullPath);
         const handler: EvalHandler = typeof exported === "function" ? exported : exported.default;
@@ -282,13 +302,13 @@ export class BrowserService {
             throw new Error(`"${scriptPath}" must export a function: page => { ... }`);
         }
 
-        return this.run(handler, name, tab, viewport);
+        return this.run(handler, name, tab, viewport, isNew);
     }
 
-    public async eval(code: string, name?: string, tab?: string, viewport?: string): Promise<unknown> {
+    public async eval(code: string, name?: string, tab?: string, viewport?: string, isNew?: boolean): Promise<unknown> {
         const handler = new AsyncFunction("page", code) as EvalHandler;
 
-        return this.run(handler, name, tab, viewport);
+        return this.run(handler, name, tab, viewport, isNew);
     }
 
     public async pages(name?: string): Promise<string> {
@@ -305,11 +325,13 @@ export class BrowserService {
             const pages = await browser.pages();
 
             const table = new CliTable({
-                head: ["#", "Title", "URL"]
+                head: ["#", "Active", "Title", "URL"]
             });
 
             for(let i = 0; i < pages.length; i++) {
-                table.push([i, await pages[i].title().catch(() => ""), pages[i].url()]);
+                const active = await this.isVisible(pages[i]);
+
+                table.push([i, active ? "*" : "", await pages[i].title().catch(() => ""), pages[i].url()]);
             }
 
             return table.toString();
@@ -319,7 +341,11 @@ export class BrowserService {
         }
     }
 
-    protected async run(handler: EvalHandler, name?: string, tab?: string, viewport?: string): Promise<unknown> {
+    protected async run(handler: EvalHandler, name?: string, tab?: string, viewport?: string, isNew?: boolean): Promise<unknown> {
+        if(tab && isNew) {
+            throw new Error("--tab and --new can't be used together");
+        }
+
         const service = this.config.getServiceOrDefault(name);
 
         const cdpUrl = await this.cdp(name);
@@ -330,26 +356,25 @@ export class BrowserService {
             defaultViewport: this.parseViewport(viewport)
         });
 
-        // Attaching to a tab the user already has open (and already
-        // authenticated in) means we must never close it ourselves — only
-        // pages we create here get closed in `finally`.
-        let page: Page | undefined;
-        let ownPage = false;
+        let page: Page;
 
-        if(tab) {
+        if(isNew) {
+            page = await browser.newPage();
+        }
+        else if(tab) {
             const pages = await browser.pages();
+            const found = this.findTab(pages, tab);
 
-            page = this.findTab(pages, tab);
-
-            if(!page) {
+            if(!found) {
                 await browser.disconnect().catch(() => {});
 
                 throw new Error(`No open tab matching "${tab}". Run "ws browser:pages" to see what's open.`);
             }
+
+            page = found;
         }
         else {
-            page = await browser.newPage();
-            ownPage = true;
+            page = await this.findActiveTab(browser);
         }
 
         const strayRejections: unknown[] = [];
@@ -364,10 +389,6 @@ export class BrowserService {
             return await handler(page);
         }
         finally {
-            if(ownPage) {
-                await page.close().catch(() => {});
-            }
-
             await browser.disconnect().catch(() => {});
 
             await new Promise((resolve) => setImmediate(resolve));
@@ -375,9 +396,28 @@ export class BrowserService {
             process.off("unhandledRejection", onUnhandledRejection);
 
             if(strayRejections.length > 0) {
-                console.error("Warning: the script didn't await one or more promises (e.g. \"page.goto(...)\" without \"await\") — they were aborted when the page closed.");
+                console.error("Warning: the script didn't await one or more promises (e.g. \"page.goto(...)\" without \"await\") — they were aborted when the connection to the browser closed.");
             }
         }
+    }
+
+    // The CDP tree has no "active tab" flag — visibilityState is the only
+    // signal a page exposes for whether it's the one currently in the
+    // foreground, so we probe each open page for it.
+    protected async findActiveTab(browser: Browser): Promise<Page> {
+        const pages = await browser.pages();
+
+        for(const page of pages) {
+            if(await this.isVisible(page)) {
+                return page;
+            }
+        }
+
+        return pages[0] || await browser.newPage();
+    }
+
+    protected isVisible(page: Page): Promise<boolean> {
+        return page.evaluate(() => document.visibilityState === "visible").catch(() => false);
     }
 
     protected endpointOptions(endpoint: string): {browserURL: string} | {browserWSEndpoint: string} {
@@ -392,7 +432,7 @@ export class BrowserService {
         };
     }
 
-    public async screenshot(name?: string, tab?: string, selector?: string, out?: string, fullPage?: boolean, viewport?: string): Promise<string> {
+    public async screenshot(name?: string, tab?: string, selector?: string, out?: string, fullPage?: boolean, viewport?: string, isNew?: boolean): Promise<string> {
         const outPath = out
             ? Path.resolve(process.cwd(), out)
             : Path.join("/tmp", `screenshot-${Date.now()}.png`);
@@ -416,7 +456,7 @@ export class BrowserService {
                 path: outPath,
                 fullPage
             });
-        }, name, tab, viewport);
+        }, name, tab, viewport, isNew);
 
         return outPath;
     }

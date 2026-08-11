@@ -93,6 +93,7 @@ export class Service {
     public toObject(): ServiceProps {
         return {
             name: this.name,
+            browser: this.browser,
             provider: this.provider,
             image: this._image,
             env: this.env,
