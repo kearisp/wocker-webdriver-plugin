@@ -1,4 +1,4 @@
-import {DockerService, Injectable, PluginConfigService} from "@wocker/core";
+import {DockerService, Injectable, PluginConfigService, ProjectService} from "@wocker/core";
 import {promptConfirm, promptInput, promptSelect} from "@wocker/prompts";
 import CliTable from "cli-table3";
 import * as Path from "path";
@@ -7,19 +7,20 @@ import {Config} from "../makes/Config";
 import {Service, ServiceProps} from "../makes/Service";
 import {ProviderType} from "../types/ProviderType";
 import {BrowserProvider} from "../types/BrowserProvider";
+import {ProjectHelper} from "../types/ProjectHelper";
 import {ContainerProvider} from "../providers/ContainerProvider";
 import {HostProvider} from "../providers/HostProvider";
 import {UrlProvider} from "../providers/UrlProvider";
 import {detectBrowsers} from "../utils/detectBrowsers";
 import {hideWindowByPid, showWindowByPid} from "../utils/x11";
+import {redactDeep} from "../utils/redact";
 import {BrowserTypeEnum} from "../types/BrowserType";
+import {SecretsService} from "./SecretsService";
 
 
-export type EvalHandler = (page: Page) => unknown;
+export type EvalHandler = (page: Page, helper: ProjectHelper) => unknown;
 
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => EvalHandler;
-
-const MANUAL_PATH = "__manual__";
 
 
 @Injectable()
@@ -28,7 +29,9 @@ export class BrowserService {
 
     public constructor(
         protected readonly pluginConfigService: PluginConfigService,
-        protected readonly dockerService: DockerService
+        protected readonly dockerService: DockerService,
+        protected readonly projectService: ProjectService,
+        protected readonly secretsService: SecretsService
     ) {}
 
     public get config(): Config {
@@ -147,6 +150,8 @@ export class BrowserService {
 
     protected async promptForPath(): Promise<string> {
         const browsers = detectBrowsers();
+
+        const MANUAL_PATH = "__manual__";
 
         let path: string = MANUAL_PATH;
 
@@ -299,14 +304,14 @@ export class BrowserService {
         const handler: EvalHandler = typeof exported === "function" ? exported : exported.default;
 
         if(typeof handler !== "function") {
-            throw new Error(`"${scriptPath}" must export a function: page => { ... }`);
+            throw new Error(`"${scriptPath}" must export a function: (page, helper) => { ... }`);
         }
 
         return this.run(handler, name, tab, viewport, isNew);
     }
 
     public async eval(code: string, name?: string, tab?: string, viewport?: string, isNew?: boolean): Promise<unknown> {
-        const handler = new AsyncFunction("page", code) as EvalHandler;
+        const handler = new AsyncFunction("page", "helper", code) as EvalHandler;
 
         return this.run(handler, name, tab, viewport, isNew);
     }
@@ -385,10 +390,42 @@ export class BrowserService {
 
         process.on("unhandledRejection", onUnhandledRejection);
 
+        // Every plaintext value fillWithSecret() ever resolves during this run gets
+        // recorded here (host-side only — the script never sees this set), so it can
+        // be scrubbed from anything that's about to be printed, even if it leaked in
+        // through a side channel (e.g. a script logging a page's own confirmation text
+        // that happens to echo the value back) rather than the script's own doing.
+        const touchedSecrets = new Set<string>();
+
+        const project = this.projectService.get();
+
+        const helper: ProjectHelper = {
+            getEnv: (key: string, byDefault?: string) => project.getEnv(key, byDefault as string),
+            hasEnv: (key) => project.hasEnv(key),
+            getMeta: (key: string, byDefault?: string) => project.getMeta(key, byDefault as string),
+            hasMeta: (key) => project.hasMeta(key),
+            generatePassword: (secretName, length) => this.secretsService.generatePassword(secretName, length),
+            setSecret: (secretName, value) => this.secretsService.setSecret(secretName, value),
+            hasSecret: (secretName) => this.secretsService.hasSecret(secretName),
+            fillWithSecret: async (selector, secretName) => {
+                const value = await this.secretsService.resolveSecret(secretName);
+
+                touchedSecrets.add(value);
+
+                await page.locator(selector).fill(value);
+            }
+        };
+
+        const restoreOutput = this.patchOutputForRedaction(touchedSecrets);
+
         try {
-            return await handler(page);
+            const result = await handler(page, helper);
+
+            return redactDeep(result, touchedSecrets);
         }
         finally {
+            restoreOutput();
+
             await browser.disconnect().catch(() => {});
 
             await new Promise((resolve) => setImmediate(resolve));
@@ -399,6 +436,34 @@ export class BrowserService {
                 console.error("Warning: the script didn't await one or more promises (e.g. \"page.goto(...)\" without \"await\") — they were aborted when the connection to the browser closed.");
             }
         }
+    }
+
+    // Scrubs any secret value a script might print (console.log, a thrown error's
+    // message, etc.) before it actually reaches stdout/stderr. This runs regardless
+    // of what the script does — it doesn't rely on the script cooperating — but it's
+    // still only an exact-substring match, so a re-encoded copy of a value slips
+    // through; see README's "Secrets" section for the documented limitation.
+    protected patchOutputForRedaction(touchedSecrets: ReadonlySet<string>): () => void {
+        const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+        const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+        const wrap = (original: typeof process.stdout.write): typeof process.stdout.write => {
+            return ((chunk: unknown, ...args: unknown[]) => {
+                const text = typeof chunk === "string" ? chunk : chunk instanceof Buffer ? chunk.toString() : chunk;
+
+                const redacted = typeof text === "string" ? redactDeep(text, touchedSecrets) : text;
+
+                return (original as (...a: unknown[]) => boolean)(redacted, ...args);
+            }) as typeof process.stdout.write;
+        };
+
+        process.stdout.write = wrap(originalStdoutWrite);
+        process.stderr.write = wrap(originalStderrWrite);
+
+        return () => {
+            process.stdout.write = originalStdoutWrite;
+            process.stderr.write = originalStderrWrite;
+        };
     }
 
     // The CDP tree has no "active tab" flag — visibilityState is the only
