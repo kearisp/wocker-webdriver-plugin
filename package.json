@@ -1,7 +1,7 @@
 {
     "name": "@wocker/webdriver-plugin",
     "type": "commonjs",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "description": "Webdriver plugin for wocker",
     "author": "Kris Papercut <krispcut@gmail.com>",
     "license": "MIT",
@@ -25,9 +25,10 @@
     },
     "scripts": {
         "prepublishOnly": "npm run build",
-        "watch": "tsc -w",
-        "build": "tsc",
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "watch": "tsc -w --project tsconfig.build.json",
+        "build": "tsc --project tsconfig.build.json",
+        "test": "jest --colors",
+        "test-watch": "jest --colors --watchAll --coverage"
     },
     "dependencies": {
         "@wocker/core": "^1.0.24",
@@ -38,7 +39,13 @@
         "puppeteer-core": "^25.3.0"
     },
     "devDependencies": {
+        "@types/jest": "^30.0.0",
         "@types/node": "^24.0.3",
+        "@wocker/testing": "^1.0.9",
+        "jest": "^30.3.0",
+        "memfs": "^4.49.0",
+        "ts-jest": "^29.4.9",
+        "ts-node": "^10.9.2",
         "typescript": "^5.8.3"
     }
 }
