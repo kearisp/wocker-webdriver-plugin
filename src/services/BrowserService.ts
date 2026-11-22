@@ -2,7 +2,7 @@ import {DockerService, Injectable, PluginConfigService, ProjectService} from "@w
 import {promptConfirm, promptInput, promptSelect} from "@wocker/prompts";
 import CliTable from "cli-table3";
 import * as Path from "path";
-import puppeteer, {Browser, Page, Viewport} from "puppeteer-core";
+import type {Browser, Page, Viewport} from "puppeteer-core";
 import {Config} from "../makes/Config";
 import {Service, ServiceProps} from "../makes/Service";
 import {ProviderType} from "../types/ProviderType";
@@ -12,7 +12,6 @@ import {ContainerProvider} from "../providers/ContainerProvider";
 import {HostProvider} from "../providers/HostProvider";
 import {UrlProvider} from "../providers/UrlProvider";
 import {detectBrowsers} from "../utils/detectBrowsers";
-import {hideWindowByPid, showWindowByPid} from "../utils/x11";
 import {redactDeep} from "../utils/redact";
 import {BrowserTypeEnum} from "../types/BrowserType";
 import {SecretsService} from "./SecretsService";
@@ -270,11 +269,17 @@ export class BrowserService {
     }
 
     public async hideWindow(name?: string): Promise<void> {
-        hideWindowByPid(this.getPid(name));
+        const pid = this.getPid(name);
+        const {hideWindowByPid} = await import("../utils/x11");
+
+        hideWindowByPid(pid);
     }
 
     public async showWindow(name?: string): Promise<void> {
-        showWindowByPid(this.getPid(name));
+        const pid = this.getPid(name);
+        const {showWindowByPid} = await import("../utils/x11");
+
+        showWindowByPid(pid);
     }
 
     protected getPid(name?: string): number {
@@ -319,6 +324,7 @@ export class BrowserService {
     public async pages(name?: string): Promise<string> {
         const service = this.config.getServiceOrDefault(name);
         const cdpUrl = await this.cdp(name);
+        const {default: puppeteer} = await import("puppeteer-core");
 
         const browser = await puppeteer.connect({
             ...this.endpointOptions(cdpUrl),
@@ -354,6 +360,7 @@ export class BrowserService {
         const service = this.config.getServiceOrDefault(name);
 
         const cdpUrl = await this.cdp(name);
+        const {default: puppeteer} = await import("puppeteer-core");
 
         const browser = await puppeteer.connect({
             ...this.endpointOptions(cdpUrl),
